@@ -1,0 +1,11 @@
+C:\Users\manap\Desktop\PLK\Final\SMV\SMV\bin\Release\SMV.exe.config
+C:\Users\manap\Desktop\PLK\Final\SMV\SMV\bin\Release\SMV.exe
+C:\Users\manap\Desktop\PLK\Final\SMV\SMV\bin\Release\SMV.pdb
+C:\Users\manap\Desktop\PLK\Final\SMV\SMV\obj\Release\SMV.csproj.AssemblyReference.cache
+C:\Users\manap\Desktop\PLK\Final\SMV\SMV\obj\Release\SMV.csproj.SuggestedBindingRedirects.cache
+C:\Users\manap\Desktop\PLK\Final\SMV\SMV\obj\Release\SMV.Form1.resources
+C:\Users\manap\Desktop\PLK\Final\SMV\SMV\obj\Release\SMV.Properties.Resources.resources
+C:\Users\manap\Desktop\PLK\Final\SMV\SMV\obj\Release\SMV.csproj.GenerateResource.cache
+C:\Users\manap\Desktop\PLK\Final\SMV\SMV\obj\Release\SMV.csproj.CoreCompileInputs.cache
+C:\Users\manap\Desktop\PLK\Final\SMV\SMV\obj\Release\SMV.exe
+C:\Users\manap\Desktop\PLK\Final\SMV\SMV\obj\Release\SMV.pdb
