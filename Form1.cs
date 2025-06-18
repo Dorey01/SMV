@@ -38,6 +38,7 @@ namespace SMV
             {
                 string combinedText = FileContentCombiner.CombineVarSections(globalText.Text, stText.Text);
 
+
                 using (var saveFileDialog = new SaveFileDialog())
                 {
                     saveFileDialog.Filter = "Text files (*.txt)|*.txt|EXP files (*.exp)|*.exp";

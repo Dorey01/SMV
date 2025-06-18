@@ -29,18 +29,16 @@ public static class SmvToStConverter
             output.AppendLine("PROGRAM PLC_PRG");
             output.AppendLine("VAR");
 
-            // Извлекаем и обрабатываем секцию init
-            string initPattern = @"init\(([^)]+)\):=(.*?);";
-            MatchCollection initMatches = Regex.Matches(smvContent, initPattern, RegexOptions.Multiline);
+            // Словарь для хранения переменных и их типов
             Dictionary<string, string> initVars = new Dictionary<string, string>();
             string lastComment = "";
 
-            foreach (Match match in initMatches)
-            {
-                string fullMatch = match.Value;
-                string variable = match.Groups[1].Value.Trim();
-                string value = match.Groups[2].Value.Trim();
+            // Поиск всех объявлений переменных (включая timer) в SMV-файле
+            string varPattern = @"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(timer|0..1|0|1)\s*;";
+            MatchCollection varMatches = Regex.Matches(smvContent, varPattern, RegexOptions.Multiline);
 
+            foreach (Match match in varMatches)
+            {
                 // Ищем комментарий перед текущей строкой
                 int commentStart = smvContent.LastIndexOf("/*", match.Index, match.Index - lastIndex) + 2;
                 if (commentStart > 1 && commentStart < match.Index)
@@ -49,30 +47,33 @@ public static class SmvToStConverter
                     if (commentEnd > commentStart && commentEnd < match.Index)
                     {
                         lastComment = smvContent.Substring(commentStart, commentEnd - commentStart).Trim();
+           
                     }
                 }
 
-                // Сохраняем переменную и тип с начальным значением
-                if (value == "0..1")
-                {
-                    initVars[variable] = "BOOL";
-                }
-                else if (value == "timer")
+                string variable = match.Groups[1].Value.Trim();
+                string type = match.Groups[2].Value.Trim();
+
+                // Определяем тип переменной
+                if (type == "timer")
                 {
                     initVars[variable] = "TON := (PT := T#0s)";
                 }
-                else if (value == "0")
+                else if (type == "0..1")
+                {
+                    initVars[variable] = "BOOL";
+                }
+                else if (type == "0")
                 {
                     initVars[variable] = "BOOL := FALSE";
                 }
-                else if (value == "1")
+                else if (type == "1")
                 {
                     initVars[variable] = "BOOL := TRUE";
                 }
                 else
                 {
-                    // Если тип неизвестен, выводим сообщение об ошибке и пропускаем переменную
-                    MessageBox.Show($"Неизвестный тип для переменной {variable}: {value}. Ожидается '0..1', 'timer', '0' или '1'. Переменная будет пропущена.",
+                    MessageBox.Show($"Неизвестный тип для переменной {variable}: {type}. Переменная будет пропущена.",
                         "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     continue;
                 }
@@ -84,7 +85,7 @@ public static class SmvToStConverter
                 }
 
                 output.AppendLine($"    {variable} : {initVars[variable]};");
-                lastIndex = match.Index + fullMatch.Length;
+                lastIndex = match.Index + match.Length;
             }
 
             // Находим последнее вхождение next(...):={0,1};
@@ -98,7 +99,7 @@ public static class SmvToStConverter
             }
             int startIndex = nextMatches[nextMatches.Count - 1].Index + nextMatches[nextMatches.Count - 1].Length;
 
-            // Находим последнее вхождение .IN:=...;
+            // Находим последнее вхождение .I:=...;
             string inPattern = @"\w+\.I:=.+?;";
             MatchCollection inMatches = Regex.Matches(smvContent, inPattern);
             if (inMatches.Count == 0)
@@ -109,14 +110,14 @@ public static class SmvToStConverter
             }
             int endIndex = inMatches[inMatches.Count - 1].Index + inMatches[inMatches.Count - 1].Length;
 
-            // Извлекаем содержимое между последним next(...):={0,1}; и последним .IN:=...;
+            // Извлекаем содержимое между последним next(...):={0,1}; и последним .I:=...;
             string relevantContent = smvContent.Substring(startIndex, endIndex - startIndex);
 
             // Множество для хранения переменных (без дубликатов)
             HashSet<string> variables = new HashSet<string>();
 
             // Регулярное выражение для поиска выражений (case и одиночные присваивания)
-            string combinedPattern = @"(case\s*\{[\s\S]*?\}\s*;|(?:next\([^)]+\)|[^:=\s]+\.IN):=[^;]+;)";
+            string combinedPattern = @"(case\s*\{[\s\S]*?\}\s*;|(?:next\([^)]+\)|[^:=\s]+\.I):=[^;]+;)";
             MatchCollection matches = Regex.Matches(relevantContent, combinedPattern, RegexOptions.Multiline);
 
             // Первый проход: сбор всех переменных
@@ -132,7 +133,7 @@ public static class SmvToStConverter
                 else
                 {
                     // Это одиночное присваивание
-                    if (!expression.Contains(".IN"))
+                    if (!expression.Contains(".I"))
                     {
                         string[] parts = expression.Split(new[] { ":=" }, StringSplitOptions.None);
                         if (parts.Length == 2)
@@ -166,6 +167,7 @@ public static class SmvToStConverter
                     string commentSection = relevantContent.Substring(lastIndex, expressionStart - lastIndex).Trim();
                     if (!string.IsNullOrWhiteSpace(commentSection))
                     {
+                        commentSection=commentSection.Replace("/*", "(*").Replace("*/", "*)");
                         output.AppendLine(commentSection);
                     }
                 }
@@ -301,24 +303,37 @@ public static class SmvToStConverter
 
     private static string TransformCondition(string condition)
     {
-        condition = condition.Replace("&", " AND ")
-                            .Replace("|", " OR ")
-                            .Replace("~", "NOT ")
-                            .Replace("next(", "_")
-                            .Replace(")", "");
-
-        condition = Regex.Replace(condition, @"\s+", " ").Trim();
-
-        int openParens = condition.Count(c => c == '(');
-        int closeParens = condition.Count(c => c == ')');
-        if (openParens > closeParens)
+        // 1. Временная замена next() переменных
+        var nextVars = new List<string>();
+        condition = Regex.Replace(condition, @"next\s*\((.*?)\)", m =>
         {
-            condition += new string(')', openParens - closeParens);
-        }
-        else if (closeParens > openParens)
+            nextVars.Add(m.Groups[1].Value);
+            return $"[NEXT_VAR_{nextVars.Count - 1}]";
+        });
+
+        // 2. Замена операторов
+        condition = condition
+            .Replace("&", " AND ")
+            .Replace("|", " OR ")
+            .Replace("~", " NOT ")
+            .Replace(".I", ".IN");
+
+        // 3. Добавление _ к обычным переменным (не next, не поля объектов)
+        condition = Regex.Replace(
+            condition,
+            @"\b(?!NOT\b|AND\b|OR\b|\[NEXT_VAR_\d+\])([A-Za-z][A-Za-z0-9]*)(?![\.\(])",
+            "_$1"
+        );
+
+        // 4. Восстановление next() переменных (без _)
+        for (int i = 0; i < nextVars.Count; i++)
         {
-            condition = new string('(', closeParens - openParens) + condition;
+            condition = condition.Replace($"NEXT_VAR_{i}", nextVars[i]);
         }
+        condition = condition
+       .Replace("[_", "")
+       .Replace("]", "");
+        // 5. Балансировка скобок
 
         return condition;
     }
@@ -329,25 +344,16 @@ public static class SmvToStConverter
         string[] parts = assignment.Split(new[] { ":=" }, StringSplitOptions.None);
         if (parts.Length != 2) return assignment;
 
-        string left = parts[0].Trim().Replace("next(", "").Replace(")", "");
-        string right = parts[1].Trim().Replace("next(", "").Replace(")", "")
-                              .Replace("&", " AND ")
-                              .Replace("|", " OR ")
-                              .Replace("~", "NOT ")
-                              .Replace(".I", ".IN"); // Заменяем .I на .IN
-        right = Regex.Replace(right, @"\s+", " ").Trim();
-
-        int openParens = right.Count(c => c == '(');
-        int closeParens = right.Count(c => c == ')');
-        if (openParens > closeParens)
+        // Обработка левой части (next(var) → var)
+        string left = parts[0].Trim();
+        if (left.StartsWith("next(") && left.EndsWith(")"))
         {
-            right += new string(')', openParens - closeParens);
-        }
-        else if (closeParens > openParens)
-        {
-            right = new string('(', closeParens - openParens) + right;
+            left = left.Substring(5, left.Length - 6);
         }
 
-        return $"{left}:={right};";
+        // Обработка правой части
+        string right = TransformCondition(parts[1].Trim());
+
+        return $"{left} := {right};";
     }
 }

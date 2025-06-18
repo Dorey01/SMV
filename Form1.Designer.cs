@@ -167,7 +167,7 @@
             this.Controls.Add(this.stText);
             this.Controls.Add(this.globalText);
             this.Name = "Form1";
-            this.Text = "SMV v0.2";
+            this.Text = "SMV v0.4";
             this.ResumeLayout(false);
             this.PerformLayout();
 
